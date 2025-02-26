@@ -465,7 +465,7 @@ function block_onlinesurvey_get_lti_content($config = null, $context = null, $co
     global $CFG, $SESSION;
 
     require_once($CFG->dirroot . '/mod/lti/locallib.php');
-    $lticontentstr = '';
+
     if (empty($config)) {
         $config = block_onlinesurvey_get_launch_config();
     }
@@ -476,6 +476,7 @@ function block_onlinesurvey_get_lti_content($config = null, $context = null, $co
     } else {
         list($endpoint, $parameter) = block_onlinesurvey_get_launch_data($config, $context, $course);
     }
+
     $debuglaunch = $config->survey_debug;
 
     $surveycount = 0;
@@ -489,6 +490,8 @@ function block_onlinesurvey_get_lti_content($config = null, $context = null, $co
 
     // Search in $content2 for e.g.: <div class="cell participate centered">.
     // If match found and survey_show_popupinfo is set, add code to generate popup.
+
+    $lticontentstr = '';
     if (!empty($content2)) {
         if (isset($config->lti_regex_learner) && !empty($config->lti_regex_learner)) {
             $re = $config->lti_regex_learner;
@@ -517,9 +520,15 @@ function block_onlinesurvey_get_lti_content($config = null, $context = null, $co
         } else {
             $reinstructor = BLOCK_ONLINESURVEY_LTI_REGEX_INSTRUCTOR_DEFAULT;
         }
+        /* KIZ MODIFICATION START*/
+        /*
         if (!empty($reinstructor)) {
             $surveycount += preg_match_all($reinstructor, $content2, $matches, PREG_SET_ORDER, 0);
+        */
+        if (empty($matches) && !empty($reinstructor)) {
+            $surveycount = preg_match_all($reinstructor, $content2, $matches, PREG_SET_ORDER, 0);
         }
+        /* KIZ MODIFICATION END */
     }
 
     if ($config->survey_hide_empty && $surveycount > 0 && !$modalzoom) {
@@ -585,7 +594,8 @@ function block_onlinesurvey_get_launch_data($config = null, $context = null, $co
         $config->lti_tool_consumer_instance_guid = $urlparts['host'];
     }
 
-    $key = $config->lti_clientid;
+    //$key = $config->lti_clientid;
+    $key = '';
     if (!empty($config->lti_password)) {
         $secret = $config->lti_password;
     } else if (is_array($config) && !empty($config['lti_password'])) {
@@ -650,7 +660,7 @@ function block_onlinesurvey_get_launch_data($config = null, $context = null, $co
     if (!empty($target)) {
         $requestparams['launch_presentation_document_target'] = $target;
     }
-    $requestparams['launch_presentation_return_url'] = $CFG->wwwroot . '/blocks/onlinesurvey/show_surveys.php';
+    //$requestparams['launch_presentation_return_url'] = $CFG->wwwroot . '/blocks/onlinesurvey/show_surveys.php';
 
     // Consumer key currently not used -> $key can be '' -> check "(true or !empty(key))".
     if ((true or !empty($key)) && !empty($secret)) {
@@ -846,7 +856,7 @@ function block_onlinesurvey_lti_get_launch_data($config = null, $nonce = '', $me
  * @param int $foruserid
  * @return multitype:string NULL
  */
-function     block_onlinesurvey_build_request_lti($config, $course, $messagetype = null, $foruserid = 0) {
+function block_onlinesurvey_build_request_lti($config, $course, $messagetype = null, $foruserid = 0) {
     global $USER;
 
     $roles = block_onlinesurvey_get_ims_roles($USER, $config);
@@ -859,9 +869,6 @@ function     block_onlinesurvey_build_request_lti($config, $course, $messagetype
         'context_label' => $course->shortname,
         'context_title' => $course->fullname,
     );
-    if ($messagetype) {
-        $requestparams['lti_message_type'] = $messagetype;
-    }
     if ($course->format == 'site') {
         $requestparams['context_type'] = 'Group';
     } else {
@@ -871,19 +878,20 @@ function     block_onlinesurvey_build_request_lti($config, $course, $messagetype
 
     // E-mail address is evaluated in EVERY case, even if it is decided to use the Username instead.
     $requestparams['lis_person_contact_email_primary'] = $USER->email;
-    $requestparams['resource_link_id'] = block_onlinesurvey_get_lti_typeid();
 
-
-    $requestparams['ext_lms'] = 'moodle-2';
-
-    if ($foruserid) {
-        $requestparams['for_user_id'] = $foruserid;
-    }
     if ($config->connectiontype == LTI_VERSION_1P3) {
-        $requestparams["https://purl.imsglobal.org/spec/lti/claim/ext"] = [
+        if ($messagetype) {
+            $requestparams['lti_message_type'] = $messagetype;
+        }
+        $requestparams['ext_lms'] = 'moodle-2';
+        $requestparams['resource_link_id'] = block_onlinesurvey_get_lti_typeid();
+        if ($foruserid) {
+            $requestparams['for_user_id'] = $foruserid;
+        }
+        /*$requestparams["https://purl.imsglobal.org/spec/lti/claim/ext"] = [
             "user_username" => $USER->username,
             "lms" => "moodle-2",
-        ];
+        ];*/
         $requestparams["email"] = $USER->email;
         $requestparams['lis_person_name_given'] = $USER->firstname;
         $requestparams['lis_person_name_family'] = $USER->lastname;
@@ -891,7 +899,7 @@ function     block_onlinesurvey_build_request_lti($config, $course, $messagetype
         $requestparams['ext_user_username'] = $USER->username;
         $requestparams['resource_link_title'] = $config->blocktitle;
         $requestparams['resource_link_description'] = $config->blocktitle;
-        $requestparams["https://purl.imsglobal.org/spec/lti/claim/version"] = '1.3.0';
+        //$requestparams["https://purl.imsglobal.org/spec/lti/claim/version"] = '1.3.0';
     }
 
     if (strpos($roles, 'Learner') !== false) {
@@ -995,48 +1003,71 @@ function block_onlinesurvey_lti_post_launch_html_curl($parameter, $endpoint, $co
 
     // Construct html for the launch parameters.
     foreach ($parameter as $key => $value) {
-        $key = htmlspecialchars($key);
-        if (is_string($value)) {
-            $value = htmlspecialchars($value);
-        } else {
+        $key = htmlspecialchars($key ?? '');
+        //if (is_string($value)) {
+            $value = htmlspecialchars($value ?? '');
+        /*} else {
             $value = json_encode($value);
-        }
+        }*/
         if ($key != "ext_submit") {
-            $fields[$key] = $value;
+            $fields[$key] = urlencode($value);
         }
     }
+    //$fields['resource_link_id']='';
+    //return $fields;
 
-    if (isset($SESSION->lti_state) && !empty($SESSION->lti_state)) {
-        $state = $SESSION->lti_state;
+    $connectiontype = $config->connectiontype;
+
+    if ($connectiontype === LTI_VERSION_1P3) {
+        if (isset($SESSION->lti_state) && !empty($SESSION->lti_state)) {
+            $state = $SESSION->lti_state;
+        } else {
+            $state = 'state-' . hash('sha256', random_bytes(64));
+        }
+        $SESSION->lti_state = $state;
+        $fields['state'] = $state;
+        $cookiepathname = sprintf('%s/%s', make_request_directory(), $USER->id . '_' . uniqid('', true) . '.cookie');
+        $curl = new curl(['cookie' => $cookiepathname]);
+        $timeout = isset($config->survey_timeout) ? $config->survey_timeout : BLOCK_ONLINESURVEY_DEFAULT_TIMEOUT;
+        $cookies = [];
+        if (isset($_COOKIE['lti1p3_' . $state])) {
+            $cookies[] = 'lti1p3_' . $state . '=' . $_COOKIE['lti1p3_' . $state];
+        } else {
+            $cookies[] = 'lti1p3_' . $state . '=' . $state;
+        }
+        if (isset($_COOKIE['LEGACY_lti1p3_' . $state])) {
+            $cookies[] = 'LEGACY_lti1p3_' . $state . '=' . $_COOKIE['LEGACY_lti1p3_' . $state];
+        }
+        if (isset($_COOKIE['evasys_session_cookie'])) {
+            $cookies[] = 'evasys_session_cookie=' . $_COOKIE['evasys_session_cookie'];
+        }
+        $cookies = implode('; ', $cookies);
+        block_onlinesurvey_remove_outdated_cookies($state);
+        $curloptions = array(
+            'RETURNTRANSFER' => 1,
+            'FRESH_CONNECT' => true,
+            'TIMEOUT' => $timeout,
+            'HTTPHEADER' => ['Cookie: ' . $cookies],
+        );
+        $ret = $curl->post($endpoint, $fields, $curloptions);
     } else {
-        $state = 'state-' . hash('sha256', random_bytes(64));
+        // Url-ify the data for the POST.
+        $fieldsstring = '';
+        foreach ($fields as $key => $value) {
+            $fieldsstring .= $key.'='.$value.'&';
+        }
+        $fieldsstring = rtrim($fieldsstring, '&');
+
+        $curl = new curl;
+        $timeout = isset($config->survey_timeout) ? $config->survey_timeout : BLOCK_ONLINESURVEY_DEFAULT_TIMEOUT;
+        $curloptions = array(
+            'RETURNTRANSFER' => 1,
+            'FRESH_CONNECT' => true,
+            'TIMEOUT' => $timeout,
+        );
+        $ret = $curl->post($endpoint, $fieldsstring, $curloptions);
+        return $ret;
     }
-    $SESSION->lti_state = $state;
-    $fields['state'] = $state;
-    $cookiepathname = sprintf('%s/%s', make_request_directory(), $USER->id . '_' . uniqid('', true) . '.cookie');
-    $curl = new curl(['cookie' => $cookiepathname]);
-    $timeout = isset($config->survey_timeout) ? $config->survey_timeout : BLOCK_ONLINESURVEY_DEFAULT_TIMEOUT;
-    $cookies = [];
-    if (isset($_COOKIE['lti1p3_' . $state])) {
-        $cookies[] = 'lti1p3_' . $state . '=' . $_COOKIE['lti1p3_' . $state];
-    } else {
-        $cookies[] = 'lti1p3_' . $state . '=' . $state;
-    }
-    if (isset($_COOKIE['LEGACY_lti1p3_' . $state])) {
-        $cookies[] = 'LEGACY_lti1p3_' . $state . '=' . $_COOKIE['LEGACY_lti1p3_' . $state];
-    }
-    if (isset($_COOKIE['evasys_session_cookie'])) {
-        $cookies[] = 'evasys_session_cookie=' . $_COOKIE['evasys_session_cookie'];
-    }
-    $cookies = implode('; ', $cookies);
-    block_onlinesurvey_remove_outdated_cookies($state);
-    $curloptions = array(
-        'RETURNTRANSFER' => 1,
-        'FRESH_CONNECT' => true,
-        'TIMEOUT' => $timeout,
-        'HTTPHEADER' => ['Cookie: ' . $cookies],
-    );
-    $ret = $curl->post($endpoint, $fields, $curloptions);
 
     if ($errornumber = $curl->get_errno()) {
         $msgoutput = get_string('error_survey_curl_timeout_msg', 'block_onlinesurvey');
@@ -1050,7 +1081,7 @@ function block_onlinesurvey_lti_post_launch_html_curl($parameter, $endpoint, $co
         if (in_array($errornumber, array(CURLE_OPERATION_TIMEDOUT, CURLE_OPERATION_TIMEOUTED))) {
             throw new Exception("$msgoutput");
         }
-    } else {
+    } else if ($connectiontype === LTI_VERSION_1P3) {
         $rawResponse = $curl->get_raw_response();
         foreach ($rawResponse as $responseItem) {
             preg_match('/set-cookie: ([^=]*)=([^;]*)/', $responseItem, $match);
@@ -1067,7 +1098,9 @@ function block_onlinesurvey_lti_post_launch_html_curl($parameter, $endpoint, $co
             }
         }
     }
-    $ret = preg_replace('/value="state-[^"]*"/', 'value="' . $state . '"', $ret); // JUST TESTING!
+    if ($connectiontype === LTI_VERSION_1P3) {
+        $ret = preg_replace('/value="state-[^"]*"/', 'value="' . $state . '"', $ret); // JUST TESTING!
+    }
     return $ret;
 }
 
@@ -1247,10 +1280,10 @@ function block_onlinesurvey_get_params()
         $type = lti_get_type($config->typeid);
         if ($type) {
             $urls = block_onlinesurvey_get_tool_type_urls($type);
-            set_config('publickeysetplatform', $urls['publickeyset'], 'block_onlinesurvey');
+            set_config('publickeysetplatform', $urls['publickeysetplatform'], 'block_onlinesurvey');
             set_config('authrequest', $urls['authrequest'], 'block_onlinesurvey');
             set_config('accesstoken', $urls['accesstoken'], 'block_onlinesurvey');
-            $config->publickeysetplatform = $urls['publickeyset'];
+            $config->publickeysetplatform = $urls['publickeysetplatform'];
             $config->lti_authrequest = $urls['authrequest'];
             $config->lti_accesstoken = $urls['accesstoken'];
         }
@@ -1271,7 +1304,7 @@ function block_onlinesurvey_get_params()
 
 function block_onlinesurvey_get_lti_typeid()
 {
-    return get_config('block_onlinesurvey', 'typeid');
+    return get_config('block_onlinesurvey', 'deploymentid');
 }
 
 function block_onlinesurvey_get_lti_type()
@@ -1301,20 +1334,22 @@ function block_onlinesurvey_get_lti_type_config()
 function block_onlinesurvey_get_launch_config()
 {
     $config = get_config("block_onlinesurvey");
-    if (empty($config->lti_publickeyset)) {
-        $config->lti_publickeyset = block_onlinesurvey_get_publickeyset();
-    }
-    if (empty($config->lti_accesstoken)) {
-        $config->lti_accesstoken = block_onlinesurvey_get_accesstoken($config->typeid);
-    }
-    if (empty($config->lti_authrequest)) {
-        $config->lti_authrequest = block_onlinesurvey_get_authrequest($config->typeid);
-    }
-    if (empty($config->lti_clientid)) {
-        $config->lti_clientid = block_onlinesurvey_get_clientid($config->typeid);
-    }
-    if (empty($config->lti_deploymentid)) {
-        $config->lti_deploymentid = $config->typeid;
+    if ($config->connectiontype == LTI_VERSION_1P3) {
+        if (empty($config->lti_publickeyset)) {
+            $config->lti_publickeyset = block_onlinesurvey_get_publickeyset();
+        }
+        if (empty($config->lti_accesstoken)) {
+            $config->lti_accesstoken = block_onlinesurvey_get_accesstoken($config->typeid);
+        }
+        if (empty($config->lti_authrequest)) {
+            $config->lti_authrequest = block_onlinesurvey_get_authrequest($config->typeid);
+        }
+        if (empty($config->lti_clientid)) {
+            $config->lti_clientid = block_onlinesurvey_get_clientid($config->typeid);
+        }
+        if (empty($config->lti_deploymentid)) {
+            $config->lti_deploymentid = $config->typeid;
+        }
     }
     return $config;
 }

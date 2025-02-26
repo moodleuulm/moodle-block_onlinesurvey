@@ -25,10 +25,12 @@
 require_once(dirname(__FILE__).'/../../config.php');
 require_once(dirname(__FILE__).'/locallib.php');
 require_once($CFG->dirroot .'/mod/lti/locallib.php');
+require_login();
+
 if (isset($SESSION->lti_state)) {
     block_onlinesurvey_remove_outdated_cookies($SESSION->lti_state);
 }
-require_login();
+
 try {
     $systemcontext = context_system::instance();
     require_capability('block/onlinesurvey:view', $systemcontext);
@@ -36,6 +38,8 @@ try {
     $foruserid = optional_param('user', 0, PARAM_INT);
     global $USER, $PAGE;
 
+    $context = context_system::instance();
+    $PAGE->set_context($context);
 // Block settings.
     $config = block_onlinesurvey_get_launch_config();
     $error = '';
